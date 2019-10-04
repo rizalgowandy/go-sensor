@@ -9,6 +9,9 @@ import (
 	ot "github.com/opentracing/opentracing-go"
 	"github.com/opentracing/opentracing-go/ext"
 	otlog "github.com/opentracing/opentracing-go/log"
+
+    gorilla "github.com/gorilla/mux"
+    "github.com/gin-gonic/gin"
 )
 
 type SpanSensitiveFunc func(span ot.Span)
@@ -16,6 +19,59 @@ type ContextSensitiveFunc func(span ot.Span, ctx context.Context)
 
 type Sensor struct {
 	tracer ot.Tracer
+}
+
+// look up the name of the route
+func getGorillaName(route *gorilla.Route) string {
+    var theName string = ""
+
+    if route != nil {
+        if name := route.GetName(); name != "" {
+            theName = name
+        } else if name, _ := route.GetPathTemplate(); name != "" {
+            theName = name
+        } else {
+            name, _ := route.GetHostTemplate()
+            theName = name
+        }
+    }
+
+    return theName
+}
+
+func (s *Sensor) GorillaWrap(g *gorilla.Router) {
+    log.debug("Hug a Gorilla")
+    g.Walk(func(route *gorilla.Route, router *gorilla.Router, parents []*gorilla.Route) error {
+        name := getGorillaName(route)
+        log.debug("Gorilla name", name)
+        // cast Handler to HandlerFunc
+        wrappedHandler := s.TracingHandler(name, route.GetHandler().(http.HandlerFunc))
+        route.Handler(wrappedHandler)
+        return nil
+    })
+
+    if g.NotFoundHandler != nil {
+        log.debug("Wrapping not found handler")
+        g.NotFoundHandler = s.TracingHandler("NotFoundHandler", g.NotFoundHandler.(http.HandlerFunc))
+    }
+}
+
+// Gin mux middleware
+func (s *Sensor) GinWrap() gin.HandlerFunc {
+    return func(ginctx *gin.Context) {
+        name := ginctx.HandlerName()
+        log.debug("Gin Handler", name)
+
+        s.WithTracingContext(name, ginctx.Writer, ginctx.Request, func(span ot.Span, ctx context.Context) {
+            ginctx.Next()
+            // HTTP status code
+            var code int = ginctx.Writer.Status()
+            span.SetTag(string(ext.HTTPStatusCode), code)
+            if code >= http.StatusInternalServerError {
+                span.SetTag(string(ext.Error), true)
+            }
+        })
+    }
 }
 
 // Creates a new Instana sensor instance which can be used to
@@ -49,6 +105,9 @@ func (s *Sensor) TracingHandler(name string, handler http.HandlerFunc) http.Hand
 					return func(code int) {
 						next(code)
 						span.SetTag(string(ext.HTTPStatusCode), code)
+                        if code >= http.StatusInternalServerError {
+                            span.SetTag(string(ext.Error), true)
+                        }
 					}
 				},
 			}
@@ -95,6 +154,7 @@ func (s *Sensor) TracingHttpRequest(name string, parent, req *http.Request, clie
 // Executes the given SpanSensitiveFunc and executes it under the scope of a child span, which is#
 // injected as an argument when calling the function.
 func (s *Sensor) WithTracingSpan(name string, w http.ResponseWriter, req *http.Request, f SpanSensitiveFunc) {
+	log.debug("Tracing Span", name)
 	wireContext, _ := s.tracer.Extract(ot.HTTPHeaders, ot.HTTPHeadersCarrier(req.Header))
 	parentSpan := req.Context().Value("parentSpan")
 
