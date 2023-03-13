@@ -14,16 +14,17 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	instana "github.com/instana/go-sensor"
 	"github.com/instana/go-sensor/instrumentation/instaawssdk"
-	"github.com/instana/testify/assert"
-	"github.com/instana/testify/require"
 	"github.com/opentracing/opentracing-go"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestStartS3Span_WithActiveSpan(t *testing.T) {
 	recorder := instana.NewTestRecorder()
 	sensor := instana.NewSensorWithTracer(
-		instana.NewTracerWithEverything(instana.DefaultOptions(), recorder),
+		instana.NewTracerWithEverything(&instana.Options{AgentClient: alwaysReadyClient{}}, recorder),
 	)
+	defer instana.ShutdownSensor()
 
 	parentSp := sensor.Tracer().StartSpan("testing")
 
@@ -67,6 +68,7 @@ func TestStartS3Span_NoActiveSpan(t *testing.T) {
 	sensor := instana.NewSensorWithTracer(
 		instana.NewTracerWithEverything(instana.DefaultOptions(), recorder),
 	)
+	defer instana.ShutdownSensor()
 
 	req := newS3Request()
 	instaawssdk.StartS3Span(req, sensor)
@@ -78,8 +80,9 @@ func TestStartS3Span_NoActiveSpan(t *testing.T) {
 func TestFinalizeS3_NoError(t *testing.T) {
 	recorder := instana.NewTestRecorder()
 	sensor := instana.NewSensorWithTracer(
-		instana.NewTracerWithEverything(instana.DefaultOptions(), recorder),
+		instana.NewTracerWithEverything(&instana.Options{AgentClient: alwaysReadyClient{}}, recorder),
 	)
+	defer instana.ShutdownSensor()
 
 	sp := sensor.Tracer().StartSpan("s3", opentracing.Tags{
 		"s3.region": "us-east-1",
@@ -112,8 +115,9 @@ func TestFinalizeS3_NoError(t *testing.T) {
 func TestFinalizeS3Span_WithError(t *testing.T) {
 	recorder := instana.NewTestRecorder()
 	sensor := instana.NewSensorWithTracer(
-		instana.NewTracerWithEverything(instana.DefaultOptions(), recorder),
+		instana.NewTracerWithEverything(&instana.Options{AgentClient: alwaysReadyClient{}}, recorder),
 	)
+	defer instana.ShutdownSensor()
 
 	sp := sensor.Tracer().StartSpan("s3", opentracing.Tags{
 		"s3.region": "us-east-1",
@@ -129,7 +133,7 @@ func TestFinalizeS3Span_WithError(t *testing.T) {
 	instaawssdk.FinalizeS3Span(req)
 
 	spans := recorder.GetQueuedSpans()
-	require.Len(t, spans, 1)
+	require.Len(t, spans, 2)
 
 	s3Span := spans[0]
 

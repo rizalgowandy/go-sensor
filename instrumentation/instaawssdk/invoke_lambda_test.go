@@ -18,17 +18,17 @@ import (
 	"github.com/aws/aws-sdk-go/service/lambda"
 	instana "github.com/instana/go-sensor"
 	"github.com/instana/go-sensor/instrumentation/instaawssdk"
-	"github.com/instana/testify/assert"
-	"github.com/instana/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestStartInvokeLambdaSpan_WithActiveSpan(t *testing.T) {
 	const funcName = "test-function"
-
 	recorder := instana.NewTestRecorder()
 	sensor := instana.NewSensorWithTracer(
-		instana.NewTracerWithEverything(instana.DefaultOptions(), recorder),
+		instana.NewTracerWithEverything(&instana.Options{AgentClient: alwaysReadyClient{}}, recorder),
 	)
+	defer instana.ShutdownSensor()
 
 	parentSp := sensor.Tracer().StartSpan("testing")
 
@@ -87,6 +87,7 @@ func TestStartInvokeLambdaSpan_NoActiveSpan(t *testing.T) {
 	sensor := instana.NewSensorWithTracer(
 		instana.NewTracerWithEverything(instana.DefaultOptions(), recorder),
 	)
+	defer instana.ShutdownSensor()
 
 	req := newInvokeRequest(funcName)
 	instaawssdk.StartInvokeLambdaSpan(req, sensor)
@@ -100,8 +101,9 @@ func TestFinalizeInvoke_NoError(t *testing.T) {
 
 	recorder := instana.NewTestRecorder()
 	sensor := instana.NewSensorWithTracer(
-		instana.NewTracerWithEverything(instana.DefaultOptions(), recorder),
+		instana.NewTracerWithEverything(&instana.Options{AgentClient: alwaysReadyClient{}}, recorder),
 	)
+	defer instana.ShutdownSensor()
 
 	sp := sensor.Tracer().StartSpan("aws.lambda.invoke", opentracing.Tags{
 		"function": funcName,
@@ -137,8 +139,9 @@ func TestFinalizeInvokeLambdaSpan_WithError(t *testing.T) {
 
 	recorder := instana.NewTestRecorder()
 	sensor := instana.NewSensorWithTracer(
-		instana.NewTracerWithEverything(instana.DefaultOptions(), recorder),
+		instana.NewTracerWithEverything(&instana.Options{AgentClient: alwaysReadyClient{}}, recorder),
 	)
+	defer instana.ShutdownSensor()
 
 	sp := sensor.Tracer().StartSpan("aws.lambda.invoke", opentracing.Tags{
 		"function": funcName,
@@ -152,7 +155,7 @@ func TestFinalizeInvokeLambdaSpan_WithError(t *testing.T) {
 	instaawssdk.FinalizeInvokeLambdaSpan(req)
 
 	spans := recorder.GetQueuedSpans()
-	require.Len(t, spans, 1)
+	require.Len(t, spans, 2)
 
 	invokeSpan := spans[0]
 

@@ -1,8 +1,6 @@
 // (c) Copyright IBM Corp. 2021
 // (c) Copyright Instana Inc. 2016
 
-// +build go1.11
-
 package instagin
 
 import (
@@ -18,8 +16,24 @@ func AddMiddleware(sensor *instana.Sensor, engine *gin.Engine) {
 	f := middleware(sensor)
 	engine.Handlers = append([]gin.HandlerFunc{f}, engine.Handlers...)
 
-	// trigger engine.rebuild404Handlers and engine.rebuild405Handlers
+	// Trigger engine.rebuild404Handlers and engine.rebuild405Handlers
 	engine.Use()
+}
+
+// Default is wrapper for gin.Default()
+func Default(sensor *instana.Sensor) *gin.Engine {
+	e := gin.Default()
+	AddMiddleware(sensor, e)
+
+	return e
+}
+
+// New is wrapper for gin.New()
+func New(sensor *instana.Sensor) *gin.Engine {
+	e := gin.New()
+	AddMiddleware(sensor, e)
+
+	return e
 }
 
 type statusWriter interface {

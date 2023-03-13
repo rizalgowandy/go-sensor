@@ -13,8 +13,8 @@ import (
 
 	instana "github.com/instana/go-sensor"
 	"github.com/instana/go-sensor/instrumentation/instagrpc"
-	"github.com/instana/testify/assert"
-	"github.com/instana/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -25,8 +25,9 @@ import (
 func TestUnaryServerInterceptor(t *testing.T) {
 	recorder := instana.NewTestRecorder()
 	sensor := instana.NewSensorWithTracer(
-		instana.NewTracerWithEverything(&instana.Options{}, recorder),
+		instana.NewTracerWithEverything(&instana.Options{AgentClient: alwaysReadyClient{}}, recorder),
 	)
+	defer instana.ShutdownSensor()
 
 	addr, teardown, err := startTestServer(
 		&testServer{},
@@ -66,8 +67,9 @@ func TestUnaryServerInterceptor(t *testing.T) {
 func TestUnaryServerInterceptor_WithClientTraceID(t *testing.T) {
 	recorder := instana.NewTestRecorder()
 	sensor := instana.NewSensorWithTracer(
-		instana.NewTracerWithEverything(&instana.Options{}, recorder),
+		instana.NewTracerWithEverything(&instana.Options{AgentClient: alwaysReadyClient{}}, recorder),
 	)
+	defer instana.ShutdownSensor()
 
 	addr, teardown, err := startTestServer(
 		&testServer{},
@@ -96,7 +98,7 @@ func TestUnaryServerInterceptor_WithClientTraceID(t *testing.T) {
 	span, err := extractAgentSpan(spans[0])
 	require.NoError(t, err)
 
-	assert.Equal(t, "00000000000000010000001234567890", span.TraceID)
+	assert.Equal(t, "0000001234567890", span.TraceID)
 	assert.Equal(t, "0000000000000001", span.ParentID)
 }
 
@@ -105,8 +107,9 @@ func TestUnaryServerInterceptor_ErrorHandling(t *testing.T) {
 
 	recorder := instana.NewTestRecorder()
 	sensor := instana.NewSensorWithTracer(
-		instana.NewTracerWithEverything(&instana.Options{}, recorder),
+		instana.NewTracerWithEverything(&instana.Options{AgentClient: alwaysReadyClient{}}, recorder),
 	)
+	defer instana.ShutdownSensor()
 
 	addr, teardown, err := startTestServer(
 		&testServer{Error: serverErr},
@@ -122,7 +125,7 @@ func TestUnaryServerInterceptor_ErrorHandling(t *testing.T) {
 	assert.Error(t, err)
 
 	spans := recorder.GetQueuedSpans()
-	require.Len(t, spans, 1)
+	require.Len(t, spans, 2)
 
 	span, err := extractAgentSpan(spans[0])
 	require.NoError(t, err)
@@ -137,8 +140,9 @@ func TestUnaryServerInterceptor_ErrorHandling(t *testing.T) {
 func TestUnaryServerInterceptor_PanicHandling(t *testing.T) {
 	recorder := instana.NewTestRecorder()
 	sensor := instana.NewSensorWithTracer(
-		instana.NewTracerWithEverything(&instana.Options{}, recorder),
+		instana.NewTracerWithEverything(&instana.Options{AgentClient: alwaysReadyClient{}}, recorder),
 	)
+	defer instana.ShutdownSensor()
 
 	addr, teardown, err := startTestServer(
 		&panickingTestServer{},
@@ -154,7 +158,7 @@ func TestUnaryServerInterceptor_PanicHandling(t *testing.T) {
 	require.NoError(t, err)
 
 	spans := recorder.GetQueuedSpans()
-	require.Len(t, spans, 1)
+	require.Len(t, spans, 2)
 
 	span, err := extractAgentSpan(spans[0])
 	require.NoError(t, err)
@@ -169,8 +173,9 @@ func TestUnaryServerInterceptor_PanicHandling(t *testing.T) {
 func TestStreamServerInterceptor(t *testing.T) {
 	recorder := instana.NewTestRecorder()
 	sensor := instana.NewSensorWithTracer(
-		instana.NewTracerWithEverything(&instana.Options{}, recorder),
+		instana.NewTracerWithEverything(&instana.Options{AgentClient: alwaysReadyClient{}}, recorder),
 	)
+	defer instana.ShutdownSensor()
 
 	addr, teardown, err := startTestServer(
 		&testServer{},
@@ -220,8 +225,9 @@ func TestStreamServerInterceptor(t *testing.T) {
 func TestStreamServerInterceptor_WithClientTraceID(t *testing.T) {
 	recorder := instana.NewTestRecorder()
 	sensor := instana.NewSensorWithTracer(
-		instana.NewTracerWithEverything(&instana.Options{}, recorder),
+		instana.NewTracerWithEverything(&instana.Options{AgentClient: alwaysReadyClient{}}, recorder),
 	)
+	defer instana.ShutdownSensor()
 
 	addr, teardown, err := startTestServer(
 		&testServer{},
@@ -255,7 +261,7 @@ func TestStreamServerInterceptor_WithClientTraceID(t *testing.T) {
 	span, err := extractAgentSpan(spans[0])
 	require.NoError(t, err)
 
-	assert.Equal(t, "00000000000000010000001234567890", span.TraceID)
+	assert.Equal(t, "0000001234567890", span.TraceID)
 	assert.Equal(t, "0000000000000001", span.ParentID)
 }
 
@@ -264,8 +270,9 @@ func TestStreamServerInterceptor_ErrorHandling(t *testing.T) {
 
 	recorder := instana.NewTestRecorder()
 	sensor := instana.NewSensorWithTracer(
-		instana.NewTracerWithEverything(&instana.Options{}, recorder),
+		instana.NewTracerWithEverything(&instana.Options{AgentClient: alwaysReadyClient{}}, recorder),
 	)
+	defer instana.ShutdownSensor()
 
 	addr, teardown, err := startTestServer(
 		&testServer{Error: serverErr},
@@ -287,7 +294,7 @@ func TestStreamServerInterceptor_ErrorHandling(t *testing.T) {
 	assert.Error(t, err)
 
 	spans := recorder.GetQueuedSpans()
-	require.Len(t, spans, 1)
+	require.Len(t, spans, 2)
 
 	span, err := extractAgentSpan(spans[0])
 	require.NoError(t, err)
@@ -302,8 +309,9 @@ func TestStreamServerInterceptor_ErrorHandling(t *testing.T) {
 func TestStreamServerInterceptor_PanicHandling(t *testing.T) {
 	recorder := instana.NewTestRecorder()
 	sensor := instana.NewSensorWithTracer(
-		instana.NewTracerWithEverything(&instana.Options{}, recorder),
+		instana.NewTracerWithEverything(&instana.Options{AgentClient: alwaysReadyClient{}}, recorder),
 	)
+	defer instana.ShutdownSensor()
 
 	addr, teardown, err := startTestServer(
 		&panickingTestServer{},
@@ -323,10 +331,10 @@ func TestStreamServerInterceptor_PanicHandling(t *testing.T) {
 	}
 	require.NoError(t, stream.CloseSend())
 
-	require.Eventually(t, func() bool { return recorder.QueuedSpansCount() == 1 }, 100*time.Millisecond, 50*time.Millisecond)
+	require.Eventually(t, func() bool { return recorder.QueuedSpansCount() == 2 }, 100*time.Millisecond, 50*time.Millisecond)
 
 	spans := recorder.GetQueuedSpans()
-	require.Len(t, spans, 1)
+	require.Len(t, spans, 2)
 
 	span, err := extractAgentSpan(spans[0])
 	require.NoError(t, err)

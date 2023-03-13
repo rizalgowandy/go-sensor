@@ -4,77 +4,107 @@
 package instasarama_test
 
 import (
+	"context"
 	"errors"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/Shopify/sarama"
 	instana "github.com/instana/go-sensor"
+	"github.com/instana/go-sensor/acceptor"
+	"github.com/instana/go-sensor/autoprofile"
 	"github.com/instana/go-sensor/instrumentation/instasarama"
-	"github.com/instana/testify/assert"
-	"github.com/instana/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAsyncProducer_Input(t *testing.T) {
-	recorder := instana.NewTestRecorder()
-	sensor := instana.NewSensorWithTracer(instana.NewTracerWithEverything(&instana.Options{}, recorder))
+	headerFormats := []string{"" /* tests the default behavior */, "binary", "string", "both"}
 
-	parent := sensor.Tracer().StartSpan("test-span")
-	msg := instasarama.ProducerMessageWithSpan(&sarama.ProducerMessage{Topic: "test-topic"}, parent)
+	for _, headerFormat := range headerFormats {
+		os.Setenv(instasarama.KafkaHeaderEnvVarKey, headerFormat)
 
-	ap := newTestAsyncProducer(nil)
-	defer ap.Teardown()
+		recorder := instana.NewTestRecorder()
+		sensor := instana.NewSensorWithTracer(instana.NewTracerWithEverything(&instana.Options{AgentClient: alwaysReadyClient{}}, recorder))
 
-	conf := sarama.NewConfig()
-	conf.Version = sarama.V0_11_0_0
+		parent := sensor.Tracer().StartSpan("test-span")
+		msg := instasarama.ProducerMessageWithSpan(&sarama.ProducerMessage{Topic: "test-topic"}, parent)
 
-	wrapped := instasarama.WrapAsyncProducer(ap, conf, sensor)
-	wrapped.Input() <- msg
+		ap := newTestAsyncProducer(nil)
+		defer ap.Teardown()
 
-	var published *sarama.ProducerMessage
-	select {
-	case published = <-ap.input:
-		break
-	case <-time.After(1 * time.Second):
-		t.Fatalf("publishing via async producer timed out after 1s")
+		conf := sarama.NewConfig()
+		conf.Version = sarama.V0_11_0_0
+
+		wrapped := instasarama.WrapAsyncProducer(ap, conf, sensor)
+		wrapped.Input() <- msg
+
+		var published *sarama.ProducerMessage
+	channelSelect:
+		select {
+		case published = <-ap.input:
+			break channelSelect
+		case <-time.After(1 * time.Second):
+			t.Fatalf("publishing via async producer timed out after 1s")
+		}
+
+		parent.Finish()
+
+		spans := recorder.GetQueuedSpans()
+		require.Len(t, spans, 2)
+
+		pSpan, err := extractAgentSpan(spans[1])
+		require.NoError(t, err)
+
+		cSpan, err := extractAgentSpan(spans[0])
+		require.NoError(t, err)
+
+		assert.Equal(t, 0, cSpan.Ec)
+		assert.EqualValues(t, instana.ExitSpanKind, cSpan.Kind)
+
+		assert.Equal(t, agentKafkaSpanData{
+			Service: "test-topic",
+			Access:  "send",
+		}, cSpan.Data.Kafka)
+
+		if headerFormat == "both" || headerFormat == "binary" || headerFormat == "" /* -> default, currently both */ {
+			assert.Contains(t, published.Headers, sarama.RecordHeader{
+				Key:   []byte("X_INSTANA_C"),
+				Value: instasarama.PackTraceContextHeader(cSpan.TraceID, cSpan.SpanID),
+			})
+			assert.Contains(t, published.Headers, sarama.RecordHeader{
+				Key:   []byte("X_INSTANA_L"),
+				Value: instasarama.PackTraceLevelHeader("1"),
+			})
+		}
+
+		if headerFormat == "both" || headerFormat == "string" || headerFormat == "" /* -> default, currently both */ {
+			assert.Contains(t, published.Headers, sarama.RecordHeader{
+				Key:   []byte("X_INSTANA_T"),
+				Value: []byte("0000000000000000" + cSpan.TraceID),
+			})
+			assert.Contains(t, published.Headers, sarama.RecordHeader{
+				Key:   []byte("X_INSTANA_S"),
+				Value: []byte(cSpan.SpanID),
+			})
+			assert.Contains(t, published.Headers, sarama.RecordHeader{
+				Key:   []byte("X_INSTANA_L_S"),
+				Value: []byte("1"),
+			})
+		}
+
+		assert.Equal(t, pSpan.TraceID, cSpan.TraceID)
+		assert.Equal(t, pSpan.SpanID, cSpan.ParentID)
+		assert.NotEqual(t, pSpan.SpanID, cSpan.SpanID)
+
+		os.Unsetenv(instasarama.KafkaHeaderEnvVarKey)
 	}
-
-	parent.Finish()
-
-	spans := recorder.GetQueuedSpans()
-	require.Len(t, spans, 2)
-
-	pSpan, err := extractAgentSpan(spans[1])
-	require.NoError(t, err)
-
-	cSpan, err := extractAgentSpan(spans[0])
-	require.NoError(t, err)
-
-	assert.Equal(t, 0, cSpan.Ec)
-	assert.EqualValues(t, instana.ExitSpanKind, cSpan.Kind)
-
-	assert.Equal(t, agentKafkaSpanData{
-		Service: "test-topic",
-		Access:  "send",
-	}, cSpan.Data.Kafka)
-
-	assert.Contains(t, published.Headers, sarama.RecordHeader{
-		Key:   []byte("X_INSTANA_C"),
-		Value: instasarama.PackTraceContextHeader(cSpan.TraceID, cSpan.SpanID),
-	})
-	assert.Contains(t, published.Headers, sarama.RecordHeader{
-		Key:   []byte("X_INSTANA_L"),
-		Value: instasarama.PackTraceLevelHeader("1"),
-	})
-
-	assert.Equal(t, pSpan.TraceID, cSpan.TraceID)
-	assert.Equal(t, pSpan.SpanID, cSpan.ParentID)
-	assert.NotEqual(t, pSpan.SpanID, cSpan.SpanID)
 }
 
 func TestAsyncProducer_Input_WithAwaitResult_Success(t *testing.T) {
 	recorder := instana.NewTestRecorder()
-	sensor := instana.NewSensorWithTracer(instana.NewTracerWithEverything(&instana.Options{}, recorder))
+	sensor := instana.NewSensorWithTracer(instana.NewTracerWithEverything(&instana.Options{AgentClient: alwaysReadyClient{}}, recorder))
 
 	parent := sensor.Tracer().StartSpan("test-span")
 	msg := instasarama.ProducerMessageWithSpan(&sarama.ProducerMessage{Topic: "test-topic"}, parent)
@@ -124,7 +154,11 @@ func TestAsyncProducer_Input_WithAwaitResult_Success(t *testing.T) {
 	<-wrapped.Successes()
 
 	spans = recorder.GetQueuedSpans()
-	require.Len(t, spans, 1)
+
+	require.Eventually(t, func() bool {
+		spans = append(spans, recorder.GetQueuedSpans()...)
+		return len(spans) == 1
+	}, time.Millisecond*200, time.Millisecond*50)
 
 	cSpan, err := extractAgentSpan(spans[0])
 	require.NoError(t, err)
@@ -153,7 +187,8 @@ func TestAsyncProducer_Input_WithAwaitResult_Success(t *testing.T) {
 
 func TestAsyncProducer_Input_WithAwaitResult_Error(t *testing.T) {
 	recorder := instana.NewTestRecorder()
-	sensor := instana.NewSensorWithTracer(instana.NewTracerWithEverything(&instana.Options{}, recorder))
+	sensor := instana.NewSensorWithTracer(instana.NewTracerWithEverything(&instana.Options{AgentClient: alwaysReadyClient{}}, recorder))
+	defer instana.ShutdownSensor()
 
 	parent := sensor.Tracer().StartSpan("test-span")
 	msg := instasarama.ProducerMessageWithSpan(&sarama.ProducerMessage{Topic: "test-topic"}, parent)
@@ -206,7 +241,11 @@ func TestAsyncProducer_Input_WithAwaitResult_Error(t *testing.T) {
 	<-wrapped.Errors()
 
 	spans = recorder.GetQueuedSpans()
-	require.Len(t, spans, 1)
+
+	require.Eventually(t, func() bool {
+		spans = append(spans, recorder.GetQueuedSpans()...)
+		return len(spans) == 2
+	}, time.Millisecond*200, time.Millisecond*5)
 
 	cSpan, err := extractAgentSpan(spans[0])
 	require.NoError(t, err)
@@ -235,7 +274,7 @@ func TestAsyncProducer_Input_WithAwaitResult_Error(t *testing.T) {
 
 func TestAsyncProducer_Input_NoTraceContext(t *testing.T) {
 	recorder := instana.NewTestRecorder()
-	sensor := instana.NewSensorWithTracer(instana.NewTracerWithEverything(&instana.Options{}, recorder))
+	sensor := instana.NewSensorWithTracer(instana.NewTracerWithEverything(&instana.Options{AgentClient: alwaysReadyClient{}}, recorder))
 
 	msg := &sarama.ProducerMessage{
 		Topic: "topic-1",
@@ -259,7 +298,7 @@ func TestAsyncProducer_Input_NoTraceContext(t *testing.T) {
 
 func TestAsyncProducer_Successes(t *testing.T) {
 	recorder := instana.NewTestRecorder()
-	sensor := instana.NewSensorWithTracer(instana.NewTracerWithEverything(&instana.Options{}, recorder))
+	sensor := instana.NewSensorWithTracer(instana.NewTracerWithEverything(&instana.Options{AgentClient: alwaysReadyClient{}}, recorder))
 
 	msg := &sarama.ProducerMessage{
 		Topic: "topic-1",
@@ -282,7 +321,7 @@ func TestAsyncProducer_Successes(t *testing.T) {
 
 func TestAsyncProducer_Errors(t *testing.T) {
 	recorder := instana.NewTestRecorder()
-	sensor := instana.NewSensorWithTracer(instana.NewTracerWithEverything(&instana.Options{}, recorder))
+	sensor := instana.NewSensorWithTracer(instana.NewTracerWithEverything(&instana.Options{AgentClient: alwaysReadyClient{}}, recorder))
 
 	msg := &sarama.ProducerError{
 		Err: errors.New("something went wrong"),
@@ -342,3 +381,12 @@ func (p *testAsyncProducer) Teardown() {
 	close(p.successes)
 	close(p.errors)
 }
+
+type alwaysReadyClient struct{}
+
+func (alwaysReadyClient) Ready() bool                                       { return true }
+func (alwaysReadyClient) SendMetrics(data acceptor.Metrics) error           { return nil }
+func (alwaysReadyClient) SendEvent(event *instana.EventData) error          { return nil }
+func (alwaysReadyClient) SendSpans(spans []instana.Span) error              { return nil }
+func (alwaysReadyClient) SendProfiles(profiles []autoprofile.Profile) error { return nil }
+func (alwaysReadyClient) Flush(context.Context) error                       { return nil }

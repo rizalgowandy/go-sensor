@@ -1,8 +1,6 @@
 // (c) Copyright IBM Corp. 2021
 // (c) Copyright Instana Inc. 2020
 
-// +build go1.10
-
 package instana
 
 import (
@@ -36,15 +34,13 @@ func (c *wrappedSQLConnector) Connect(ctx context.Context) (driver.Conn, error) 
 		return conn, err
 	}
 
-	if conn, ok := conn.(*wrappedSQLConn); ok {
+	if connAlreadyWrapped(conn) {
 		return conn, nil
 	}
 
-	return &wrappedSQLConn{
-		Conn:    conn,
-		details: c.connDetails,
-		sensor:  c.sensor,
-	}, nil
+	w := wrapConn(c.connDetails, conn, c.sensor)
+
+	return w, nil
 }
 
 func (c *wrappedSQLConnector) Driver() driver.Driver {

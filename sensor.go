@@ -28,7 +28,7 @@ const (
 	defaultServerlessTimeout = 500 * time.Millisecond
 )
 
-type agentClient interface {
+type AgentClient interface {
 	Ready() bool
 	SendMetrics(data acceptor.Metrics) error
 	SendEvent(event *EventData) error
@@ -52,13 +52,15 @@ type sensorS struct {
 	logger      LeveledLogger
 	options     *Options
 	serviceName string
+	binaryName  string
 
 	mu    sync.RWMutex
-	agent agentClient
+	agent AgentClient
 }
 
 var (
 	sensor           *sensorS
+	muSensor         sync.Mutex
 	binaryName       = filepath.Base(os.Args[0])
 	processStartedAt = time.Now()
 )
@@ -69,9 +71,7 @@ func newSensor(options *Options) *sensorS {
 	s := &sensorS{
 		options:     options,
 		serviceName: options.Service,
-	}
-	if s.serviceName == "" {
-		s.serviceName = binaryName
+		binaryName:  binaryName,
 	}
 
 	s.setLogger(defaultLogger)
@@ -91,8 +91,13 @@ func newSensor(options *Options) *sensorS {
 		}
 	}
 
-	var agent agentClient
-	if agentEndpoint := os.Getenv("INSTANA_ENDPOINT_URL"); agentEndpoint != "" {
+	var agent AgentClient
+
+	if options.AgentClient != nil {
+		agent = options.AgentClient
+	}
+
+	if agentEndpoint := os.Getenv("INSTANA_ENDPOINT_URL"); agentEndpoint != "" && agent == nil {
 		s.logger.Debug("INSTANA_ENDPOINT_URL= is set, switching to the serverless mode")
 
 		timeout, err := parseInstanaTimeout(os.Getenv("INSTANA_TIMEOUT"))
@@ -111,11 +116,11 @@ func newSensor(options *Options) *sensorS {
 			}
 		}
 
-		agent = newServerlessAgent(s.serviceName, agentEndpoint, os.Getenv("INSTANA_AGENT_KEY"), client, s.logger)
+		agent = newServerlessAgent(s.serviceOrBinaryName(), agentEndpoint, os.Getenv("INSTANA_AGENT_KEY"), client, s.logger)
 	}
 
 	if agent == nil {
-		agent = newAgent(s.serviceName, s.options.AgentHost, s.options.AgentPort, s.logger)
+		agent = newAgent(s.serviceOrBinaryName(), s.options.AgentHost, s.options.AgentPort, s.logger)
 	}
 
 	s.setAgent(agent)
@@ -132,7 +137,7 @@ func (r *sensorS) setLogger(l LeveledLogger) {
 	}
 }
 
-func (r *sensorS) setAgent(agent agentClient) {
+func (r *sensorS) setAgent(agent AgentClient) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -141,7 +146,7 @@ func (r *sensorS) setAgent(agent agentClient) {
 
 // Agent returns the agent client used by the global sensor. It will return a noopAgent that is never ready
 // until both the global sensor and its agent are initialized
-func (r *sensorS) Agent() agentClient {
+func (r *sensorS) Agent() AgentClient {
 	if r == nil {
 		return noopAgent{}
 	}
@@ -156,6 +161,16 @@ func (r *sensorS) Agent() agentClient {
 	return r.agent
 }
 
+func (r *sensorS) serviceOrBinaryName() string {
+	if r == nil {
+		return ""
+	}
+	if r.serviceName != "" {
+		return r.serviceName
+	}
+	return r.binaryName
+}
+
 // InitSensor intializes the sensor (without tracing) to begin collecting
 // and reporting metrics.
 func InitSensor(options *Options) {
@@ -167,7 +182,9 @@ func InitSensor(options *Options) {
 		options = DefaultOptions()
 	}
 
+	muSensor.Lock()
 	sensor = newSensor(options)
+	muSensor.Unlock()
 
 	// configure auto-profiling
 	autoprofile.SetLogger(sensor.logger)
@@ -220,7 +237,17 @@ func Flush(ctx context.Context) error {
 	return sensor.Agent().Flush(ctx)
 }
 
-func newServerlessAgent(serviceName, agentEndpoint, agentKey string, client *http.Client, logger LeveledLogger) agentClient {
+// ShutdownSensor cleans up the internal global sensor reference. The next time that instana.InitSensor is called,
+// directly or indirectly, the internal sensor will be reinitialized.
+func ShutdownSensor() {
+	muSensor.Lock()
+	if sensor != nil {
+		sensor = nil
+	}
+	muSensor.Unlock()
+}
+
+func newServerlessAgent(serviceName, agentEndpoint, agentKey string, client *http.Client, logger LeveledLogger) AgentClient {
 	switch {
 	case os.Getenv("AWS_EXECUTION_ENV") == "AWS_ECS_FARGATE" && os.Getenv("ECS_CONTAINER_METADATA_URI") != "":
 		// AWS Fargate
@@ -238,6 +265,8 @@ func newServerlessAgent(serviceName, agentEndpoint, agentKey string, client *htt
 	case os.Getenv("K_SERVICE") != "" && os.Getenv("K_CONFIGURATION") != "" && os.Getenv("K_REVISION") != "":
 		// Knative, e.g. Google Cloud Run
 		return newGCRAgent(serviceName, agentEndpoint, agentKey, client, logger)
+	case os.Getenv("FUNCTIONS_WORKER_RUNTIME") == azureCustomRuntime:
+		return newAzureAgent(agentEndpoint, agentKey, client, logger)
 	default:
 		return nil
 	}

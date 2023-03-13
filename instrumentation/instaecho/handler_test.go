@@ -1,23 +1,28 @@
 // (c) Copyright IBM Corp. 2021
 // (c) Copyright Instana Inc. 2016
 
-// +build go1.15
+//go:build go1.16
+// +build go1.16
 
 package instaecho_test
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"testing"
 
+	"github.com/instana/go-sensor/acceptor"
+	"github.com/instana/go-sensor/autoprofile"
+
 	instana "github.com/instana/go-sensor"
 	"github.com/instana/go-sensor/instrumentation/instaecho"
-	"github.com/instana/testify/assert"
-	"github.com/instana/testify/require"
 	"github.com/labstack/echo/v4"
 	"github.com/opentracing/opentracing-go"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMain(m *testing.M) {
@@ -26,6 +31,7 @@ func TestMain(m *testing.M) {
 		Tracer: instana.TracerOptions{
 			CollectableHTTPHeaders: []string{"x-custom-header-1", "x-custom-header-2"},
 		},
+		AgentClient: alwaysReadyClient{},
 	})
 
 	os.Exit(m.Run())
@@ -37,6 +43,7 @@ func TestPropagation(t *testing.T) {
 
 	recorder := instana.NewTestRecorder()
 	tracer := instana.NewTracerWithEverything(nil, recorder)
+	defer instana.ShutdownSensor()
 
 	sensor := instana.NewSensorWithTracer(tracer)
 
@@ -111,7 +118,14 @@ func TestPropagationWithError(t *testing.T) {
 	spanIDHeader := "0000000000004567"
 
 	recorder := instana.NewTestRecorder()
-	tracer := instana.NewTracerWithEverything(nil, recorder)
+	tracer := instana.NewTracerWithEverything(&instana.Options{
+		Service: "test_service",
+		Tracer: instana.TracerOptions{
+			CollectableHTTPHeaders: []string{"x-custom-header-1", "x-custom-header-2"},
+		},
+		AgentClient: alwaysReadyClient{},
+	}, recorder)
+	defer instana.ShutdownSensor()
 
 	sensor := instana.NewSensorWithTracer(tracer)
 
@@ -191,3 +205,12 @@ func TestPropagationWithError(t *testing.T) {
 		Message: `error: "Internal Server Error"`,
 	}, logData.Tags)
 }
+
+type alwaysReadyClient struct{}
+
+func (alwaysReadyClient) Ready() bool                                       { return true }
+func (alwaysReadyClient) SendMetrics(data acceptor.Metrics) error           { return nil }
+func (alwaysReadyClient) SendEvent(event *instana.EventData) error          { return nil }
+func (alwaysReadyClient) SendSpans(spans []instana.Span) error              { return nil }
+func (alwaysReadyClient) SendProfiles(profiles []autoprofile.Profile) error { return nil }
+func (alwaysReadyClient) Flush(context.Context) error                       { return nil }

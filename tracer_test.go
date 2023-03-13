@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	instana "github.com/instana/go-sensor"
-	"github.com/instana/testify/assert"
 	ot "github.com/opentracing/opentracing-go"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestTracerAPI(t *testing.T) {
@@ -17,17 +17,19 @@ func TestTracerAPI(t *testing.T) {
 
 	recorder := instana.NewTestRecorder()
 
-	tracer = instana.NewTracerWithEverything(&instana.Options{}, recorder)
+	tracer = instana.NewTracerWithEverything(&instana.Options{AgentClient: alwaysReadyClient{}}, recorder)
+	defer instana.ShutdownSensor()
 	assert.NotNil(t, tracer)
 
-	tracer = instana.NewTracerWithOptions(&instana.Options{})
+	tracer = instana.NewTracerWithOptions(&instana.Options{AgentClient: alwaysReadyClient{}})
 	assert.NotNil(t, tracer)
 }
 
 func TestTracerBasics(t *testing.T) {
-	opts := instana.Options{LogLevel: instana.Debug}
+	opts := instana.Options{LogLevel: instana.Debug, AgentClient: alwaysReadyClient{}}
 	recorder := instana.NewTestRecorder()
 	tracer := instana.NewTracerWithEverything(&opts, recorder)
+	defer instana.ShutdownSensor()
 
 	sp := tracer.StartSpan("test")
 	sp.SetBaggageItem("foo", "bar")
@@ -39,7 +41,8 @@ func TestTracerBasics(t *testing.T) {
 
 func TestTracer_StartSpan_SuppressTracing(t *testing.T) {
 	recorder := instana.NewTestRecorder()
-	tracer := instana.NewTracerWithEverything(&instana.Options{}, recorder)
+	tracer := instana.NewTracerWithEverything(&instana.Options{AgentClient: alwaysReadyClient{}}, recorder)
+	defer instana.ShutdownSensor()
 
 	sp := tracer.StartSpan("test", instana.SuppressTracing())
 
@@ -49,7 +52,8 @@ func TestTracer_StartSpan_SuppressTracing(t *testing.T) {
 
 func TestTracer_StartSpan_WithCorrelationData(t *testing.T) {
 	recorder := instana.NewTestRecorder()
-	tracer := instana.NewTracerWithEverything(&instana.Options{}, recorder)
+	tracer := instana.NewTracerWithEverything(&instana.Options{AgentClient: alwaysReadyClient{}}, recorder)
+	defer instana.ShutdownSensor()
 
 	sp := tracer.StartSpan("test", ot.ChildOf(instana.SpanContext{
 		Correlation: instana.EUMCorrelationData{
@@ -60,4 +64,28 @@ func TestTracer_StartSpan_WithCorrelationData(t *testing.T) {
 
 	sc := sp.Context().(instana.SpanContext)
 	assert.Equal(t, instana.EUMCorrelationData{}, sc.Correlation)
+}
+
+type strangeContext struct{}
+
+func (c *strangeContext) ForeachBaggageItem(handler func(k, v string) bool) {}
+
+func TestTracer_NonInstanaSpan(t *testing.T) {
+	tracer := instana.NewTracerWithEverything(&instana.Options{AgentClient: alwaysReadyClient{}}, nil)
+	defer instana.ShutdownSensor()
+
+	ref := ot.SpanReference{
+		Type:              ot.ChildOfRef,
+		ReferencedContext: &strangeContext{},
+	}
+
+	opts := ot.StartSpanOptions{
+		References: []ot.SpanReference{
+			ref,
+		},
+	}
+
+	assert.NotPanics(t, func() {
+		tracer.StartSpanWithOptions("my_operation", opts)
+	})
 }

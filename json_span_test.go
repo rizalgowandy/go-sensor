@@ -4,13 +4,14 @@
 package instana_test
 
 import (
+	"os"
 	"testing"
 
 	instana "github.com/instana/go-sensor"
-	"github.com/instana/testify/assert"
-	"github.com/instana/testify/require"
 	"github.com/opentracing/opentracing-go"
 	"github.com/opentracing/opentracing-go/ext"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSpanKind_String(t *testing.T) {
@@ -43,9 +44,65 @@ func TestSpanKind_String(t *testing.T) {
 	}
 }
 
+func TestServiceNameViaConfig(t *testing.T) {
+	recorder := instana.NewTestRecorder()
+	tracer := instana.NewTracerWithEverything(
+		&instana.Options{
+			AgentClient: alwaysReadyClient{},
+			Service:     "Service Name",
+		},
+		recorder,
+	)
+	defer instana.ShutdownSensor()
+	sp := tracer.StartSpan("g.http")
+	sp.Finish()
+	spans := recorder.GetQueuedSpans()
+
+	require.Len(t, spans, 1)
+	span := spans[0]
+	assert.Equal(t, "Service Name", span.Data.(instana.HTTPSpanData).SpanData.Service)
+	assert.Contains(t, spanToJson(t, span), "\"service\":\"Service Name\"")
+}
+
+func TestServiceNameViaEnvVar(t *testing.T) {
+	envVarOriginalValue, wasSet := os.LookupEnv("INSTANA_SERVICE_NAME")
+	os.Setenv("INSTANA_SERVICE_NAME", "Service Name")
+	defer func() {
+		if wasSet {
+			os.Setenv("INSTANA_SERVICE_NAME", envVarOriginalValue)
+		} else {
+			os.Unsetenv("INSTANA_SERVICE_NAME")
+		}
+	}()
+
+	recorder := instana.NewTestRecorder()
+	tracer := instana.NewTracerWithEverything(
+		&instana.Options{
+			AgentClient: alwaysReadyClient{},
+		},
+		recorder,
+	)
+	defer instana.ShutdownSensor()
+	sp := tracer.StartSpan("g.http")
+	sp.Finish()
+	spans := recorder.GetQueuedSpans()
+
+	require.Len(t, spans, 1)
+	span := spans[0]
+	assert.Equal(t, "Service Name", span.Data.(instana.HTTPSpanData).SpanData.Service)
+	assert.Contains(t, spanToJson(t, span), "\"service\":\"Service Name\"")
+}
+
+func spanToJson(t *testing.T, span instana.Span) string {
+	jsonBytes, err := span.MarshalJSON()
+	assert.NoError(t, err)
+	return string(jsonBytes[:])
+}
+
 func TestNewSDKSpanData(t *testing.T) {
 	recorder := instana.NewTestRecorder()
-	tracer := instana.NewTracerWithEverything(&instana.Options{}, recorder)
+	tracer := instana.NewTracerWithEverything(&instana.Options{AgentClient: alwaysReadyClient{}}, recorder)
+	defer instana.ShutdownSensor()
 
 	sp := tracer.StartSpan("sdk",
 		ext.SpanKindRPCServer,
@@ -77,7 +134,8 @@ func TestNewSDKSpanData(t *testing.T) {
 
 func TestSpanData_CustomTags(t *testing.T) {
 	recorder := instana.NewTestRecorder()
-	tracer := instana.NewTracerWithEverything(&instana.Options{}, recorder)
+	tracer := instana.NewTracerWithEverything(&instana.Options{AgentClient: alwaysReadyClient{}}, recorder)
+	defer instana.ShutdownSensor()
 
 	sp := tracer.StartSpan("g.http", opentracing.Tags{
 		"http.host":   "localhost",

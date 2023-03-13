@@ -1,13 +1,13 @@
 // (c) Copyright IBM Corp. 2021
 // (c) Copyright Instana Inc. 2020
 
-// +build go1.11
-
 package iam
 
 import (
 	"context"
 	"strings"
+
+	"github.com/instana/go-sensor/instrumentation/cloud.google.com/go/internal/tags"
 
 	"cloud.google.com/go/iam"
 	"github.com/instana/go-sensor/instrumentation/cloud.google.com/go/internal"
@@ -56,7 +56,7 @@ func (h *Handle) V3() *Handle3 {
 // See https://pkg.go.dev/cloud.google.com/go/iam?tab=doc#Handle.Policy for further details on wrapped method
 func (h *Handle) Policy(ctx context.Context) (p *iam.Policy, err error) {
 	internal.StartExitSpan(ctx, "gcs", ot.Tags{
-		"gcs.op":                   iamOpPrefix(h.Resource) + ".getIamPolicy",
+		tags.GcsOp:                 iamOpPrefix(h.Resource) + ".getIamPolicy",
 		iamResourceTag(h.Resource): h.Resource.Name,
 	})
 	defer func() { internal.FinishSpan(ctx, err) }()
@@ -69,7 +69,7 @@ func (h *Handle) Policy(ctx context.Context) (p *iam.Policy, err error) {
 // See https://pkg.go.dev/cloud.google.com/go/iam?tab=doc#Handle.SetPolicy for further details on wrapped method
 func (h *Handle) SetPolicy(ctx context.Context, policy *iam.Policy) (err error) {
 	internal.StartExitSpan(ctx, "gcs", ot.Tags{
-		"gcs.op":                   iamOpPrefix(h.Resource) + ".setIamPolicy",
+		tags.GcsOp:                 iamOpPrefix(h.Resource) + ".setIamPolicy",
 		iamResourceTag(h.Resource): h.Resource.Name,
 	})
 	defer func() { internal.FinishSpan(ctx, err) }()
@@ -82,7 +82,7 @@ func (h *Handle) SetPolicy(ctx context.Context, policy *iam.Policy) (err error) 
 // See https://pkg.go.dev/cloud.google.com/go/iam?tab=doc#Handle.TestPermissions for further details on wrapped method
 func (h *Handle) TestPermissions(ctx context.Context, permissions []string) (allowed []string, err error) {
 	internal.StartExitSpan(ctx, "gcs", ot.Tags{
-		"gcs.op":                   iamOpPrefix(h.Resource) + ".testIamPermissions",
+		tags.GcsOp:                 iamOpPrefix(h.Resource) + ".testIamPermissions",
 		iamResourceTag(h.Resource): h.Resource.Name,
 	})
 	defer func() { internal.FinishSpan(ctx, err) }()
@@ -95,7 +95,7 @@ func (h *Handle) TestPermissions(ctx context.Context, permissions []string) (all
 // See https://pkg.go.dev/cloud.google.com/go/iam?tab=doc#Handle3.Policy for further details on wrapped method
 func (h *Handle3) Policy(ctx context.Context) (p *iam.Policy3, err error) {
 	internal.StartExitSpan(ctx, "gcs", ot.Tags{
-		"gcs.op":                   iamOpPrefix(h.Resource) + ".getIamPolicy",
+		tags.GcsOp:                 iamOpPrefix(h.Resource) + ".getIamPolicy",
 		iamResourceTag(h.Resource): h.Resource.Name,
 	})
 	defer func() { internal.FinishSpan(ctx, err) }()
@@ -108,7 +108,7 @@ func (h *Handle3) Policy(ctx context.Context) (p *iam.Policy3, err error) {
 // See https://pkg.go.dev/cloud.google.com/go/iam?tab=doc#Handle3.SetPolicy for further details on wrapped method
 func (h *Handle3) SetPolicy(ctx context.Context, policy *iam.Policy3) (err error) {
 	internal.StartExitSpan(ctx, "gcs", ot.Tags{
-		"gcs.op":                   iamOpPrefix(h.Resource) + ".setIamPolicy",
+		tags.GcsOp:                 iamOpPrefix(h.Resource) + ".setIamPolicy",
 		iamResourceTag(h.Resource): h.Resource.Name,
 	})
 	defer func() { internal.FinishSpan(ctx, err) }()
@@ -121,7 +121,7 @@ func (h *Handle3) SetPolicy(ctx context.Context, policy *iam.Policy3) (err error
 // See https://pkg.go.dev/cloud.google.com/go/iam?tab=doc#Handle3.TestPermissions for further details on wrapped method
 func (h *Handle3) TestPermissions(ctx context.Context, permissions []string) (allowed []string, err error) {
 	internal.StartExitSpan(ctx, "gcs", ot.Tags{
-		"gcs.op":                   iamOpPrefix(h.Resource) + ".testIamPermissions",
+		tags.GcsOp:                 iamOpPrefix(h.Resource) + ".testIamPermissions",
 		iamResourceTag(h.Resource): h.Resource.Name,
 	})
 	defer func() { internal.FinishSpan(ctx, err) }()

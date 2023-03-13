@@ -70,7 +70,7 @@ func NewSpanContext(parent SpanContext) SpanContext {
 	var foreignTrace bool
 	if parent.TraceIDHi == 0 && parent.TraceID == 0 && parent.SpanID == 0 {
 		parent = restoreFromW3CTraceContext(parent)
-		foreignTrace = true && !sensor.options.disableW3CTraceCorrelation
+		foreignTrace = !sensor.options.disableW3CTraceCorrelation
 	}
 
 	if parent.TraceIDHi == 0 && parent.TraceID == 0 && parent.SpanID == 0 {
@@ -103,7 +103,7 @@ func NewSpanContext(parent SpanContext) SpanContext {
 	// check if there is Instana state stored in the W3C tracestate header
 	if foreignTrace {
 		w3cState := c.W3CContext.State()
-		if ancestor, ok := w3cState.Fetch(w3ctrace.VendorInstana); ok {
+		if ancestor, ok := w3cState.FetchInstanaTraceStateValue(); ok {
 			if ref, ok := parseW3CInstanaState(ancestor); ok {
 				c.Links = append(c.Links, ref)
 			}
@@ -160,7 +160,7 @@ func restoreFromW3CTraceState(trCtx w3ctrace.Context) SpanContext {
 		W3CContext: trCtx,
 	}
 
-	state, ok := trCtx.State().Fetch(w3ctrace.VendorInstana)
+	state, ok := trCtx.State().FetchInstanaTraceStateValue()
 	if !ok {
 		return c
 	}

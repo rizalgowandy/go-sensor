@@ -14,8 +14,8 @@ import (
 
 	instana "github.com/instana/go-sensor"
 	"github.com/instana/go-sensor/instrumentation/instapgx"
-	"github.com/instana/testify/assert"
 	"github.com/jackc/pgx/v4"
+	"github.com/stretchr/testify/assert"
 )
 
 var databaseUrl = "postgres://postgres:mysecretpassword@localhost/postgres"
@@ -32,7 +32,7 @@ func TestMain(m *testing.M) {
 
 func prepare(t *testing.T) (*instana.Recorder, context.Context, *instapgx.Conn) {
 	recorder := instana.NewTestRecorder()
-	tracer := instana.NewTracerWithEverything(nil, recorder)
+	tracer := instana.NewTracerWithEverything(&instana.Options{AgentClient: alwaysReadyClient{}}, recorder)
 	sensor := instana.NewSensorWithTracer(tracer)
 
 	conf, err := pgx.ParseConfig(databaseUrl)

@@ -4,6 +4,7 @@
 package instana
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -13,7 +14,7 @@ import (
 // parseInstanaTags parses the tags string passed via INSTANA_TAGS.
 // The tag string is a comma-separated list of keys optionally followed by an '=' character and a string value:
 //
-//     INSTANA_TAGS := key1[=value1][,key2[=value2],...]
+//	INSTANA_TAGS := key1[=value1][,key2[=value2],...]
 //
 // The leading and trailing space is truncated from key names, values are used as-is. If a key does not have
 // value associated, it's considered to be nil.
@@ -46,7 +47,7 @@ func parseInstanaTags(s string) map[string]interface{} {
 // parseInstanaSecrets parses the tags string passed via INSTANA_SECRETS.
 // The secrets matcher configuration string is expected to have the following format:
 //
-//     INSTANA_SECRETS := <matcher>:<secret>[,<secret>]
+//	INSTANA_SECRETS := <matcher>:<secret>[,<secret>]
 //
 // Where `matcher` is one of:
 // * `equals` - matches a string if it's contained in the secrets list
@@ -55,10 +56,10 @@ func parseInstanaTags(s string) map[string]interface{} {
 // * `contains-ignore-case` is a case-insensitive version of `contains`
 // * `regex` matches a string if it fully matches any of the regular expressions provided in the secrets list
 //
-// This function returns DefaultSecretsMatcher() if there is no matcher configuration provided.
+// This function returns an error if there is no matcher configuration provided.
 func parseInstanaSecrets(s string) (Matcher, error) {
 	if s == "" {
-		return DefaultSecretsMatcher(), nil
+		return nil, errors.New("empty value for secret matcher configuration")
 	}
 
 	ind := strings.Index(s, ":")
@@ -74,7 +75,7 @@ func parseInstanaSecrets(s string) (Matcher, error) {
 // parseInstanaExtraHTTPHeaders parses the tags string passed via INSTANA_EXTRA_HTTP_HEADERS.
 // The header names are expected to come in a semicolon-separated list:
 //
-//     INSTANA_EXTRA_HTTP_HEADERS := header1[;header2;...]
+//	INSTANA_EXTRA_HTTP_HEADERS := header1[;header2;...]
 //
 // Any leading and trailing whitespace characters will be trimmed from header names.
 func parseInstanaExtraHTTPHeaders(s string) []string {

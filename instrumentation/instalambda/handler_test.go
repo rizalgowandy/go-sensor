@@ -5,34 +5,31 @@ package instalambda_test
 
 import (
 	"context"
+	"errors"
 	"io/ioutil"
 	"net/http"
-	"os"
 	"testing"
 	"time"
+
+	"github.com/instana/go-sensor/acceptor"
+	"github.com/instana/go-sensor/autoprofile"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambdacontext"
 	instana "github.com/instana/go-sensor"
 	"github.com/instana/go-sensor/instrumentation/instalambda"
-	"github.com/instana/testify/assert"
-	"github.com/instana/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestMain(m *testing.M) {
-	matcher, err := instana.NamedMatcher(instana.ContainsIgnoreCaseMatcher, []string{"secret"})
-	if err != nil {
-		panic(err)
-	}
-
-	instana.InitSensor(&instana.Options{
+func getOptions() *instana.Options {
+	return &instana.Options{
 		Tracer: instana.TracerOptions{
-			Secrets:                matcher,
 			CollectableHTTPHeaders: []string{"X-Custom-Header-1", "X-Custom-Header-2"},
+			Secrets:                instana.DefaultSecretsMatcher(),
 		},
-	})
-
-	os.Exit(m.Run())
+		AgentClient: alwaysReadyClient{},
+	}
 }
 
 func TestNewHandler_APIGatewayEvent(t *testing.T) {
@@ -43,9 +40,9 @@ func TestNewHandler_APIGatewayEvent(t *testing.T) {
 
 	for tc, fileName := range testCases {
 		t.Run(tc, func(t *testing.T) {
-
 			recorder := instana.NewTestRecorder()
-			sensor := instana.NewSensorWithTracer(instana.NewTracerWithEverything(instana.DefaultOptions(), recorder))
+			sensor := instana.NewSensorWithTracer(instana.NewTracerWithEverything(getOptions(), recorder))
+			defer instana.ShutdownSensor()
 
 			payload, err := ioutil.ReadFile(fileName)
 			require.NoError(t, err)
@@ -118,7 +115,8 @@ func TestNewHandler_APIGatewayV2Event_WithW3Context(t *testing.T) {
 	for tc, fileName := range testCases {
 		t.Run(tc, func(t *testing.T) {
 			recorder := instana.NewTestRecorder()
-			sensor := instana.NewSensorWithTracer(instana.NewTracerWithEverything(instana.DefaultOptions(), recorder))
+			sensor := instana.NewSensorWithTracer(instana.NewTracerWithEverything(getOptions(), recorder))
+			defer instana.ShutdownSensor()
 
 			payload, err := ioutil.ReadFile(fileName)
 			require.NoError(t, err)
@@ -191,7 +189,8 @@ func TestNewHandler_ALBEvent(t *testing.T) {
 	for tc, fileName := range testCases {
 		t.Run(tc, func(t *testing.T) {
 			recorder := instana.NewTestRecorder()
-			sensor := instana.NewSensorWithTracer(instana.NewTracerWithEverything(instana.DefaultOptions(), recorder))
+			sensor := instana.NewSensorWithTracer(instana.NewTracerWithEverything(getOptions(), recorder))
+			defer instana.ShutdownSensor()
 
 			payload, err := ioutil.ReadFile(fileName)
 			require.NoError(t, err)
@@ -256,7 +255,8 @@ func TestNewHandler_ALBEvent(t *testing.T) {
 
 func TestNewHandler_CloudWatchEvent(t *testing.T) {
 	recorder := instana.NewTestRecorder()
-	sensor := instana.NewSensorWithTracer(instana.NewTracerWithEverything(instana.DefaultOptions(), recorder))
+	sensor := instana.NewSensorWithTracer(instana.NewTracerWithEverything(getOptions(), recorder))
+	defer instana.ShutdownSensor()
 
 	payload, err := ioutil.ReadFile("testdata/cw_event.json")
 	require.NoError(t, err)
@@ -306,7 +306,8 @@ func TestNewHandler_CloudWatchEvent(t *testing.T) {
 
 func TestNewHandler_CloudWatchLogsEvent(t *testing.T) {
 	recorder := instana.NewTestRecorder()
-	sensor := instana.NewSensorWithTracer(instana.NewTracerWithEverything(instana.DefaultOptions(), recorder))
+	sensor := instana.NewSensorWithTracer(instana.NewTracerWithEverything(getOptions(), recorder))
+	defer instana.ShutdownSensor()
 
 	payload, err := ioutil.ReadFile("testdata/cw_logs_event.json")
 	require.NoError(t, err)
@@ -360,7 +361,8 @@ func TestNewHandler_CloudWatchLogsEvent(t *testing.T) {
 
 func TestNewHandler_CloudWatchLogsEvent_DecodeError(t *testing.T) {
 	recorder := instana.NewTestRecorder()
-	sensor := instana.NewSensorWithTracer(instana.NewTracerWithEverything(instana.DefaultOptions(), recorder))
+	sensor := instana.NewSensorWithTracer(instana.NewTracerWithEverything(getOptions(), recorder))
+	defer instana.ShutdownSensor()
 
 	payload, err := ioutil.ReadFile("testdata/cw_logs_broken_event.json")
 	require.NoError(t, err)
@@ -409,7 +411,8 @@ func TestNewHandler_CloudWatchLogsEvent_DecodeError(t *testing.T) {
 
 func TestNewHandler_S3Event(t *testing.T) {
 	recorder := instana.NewTestRecorder()
-	sensor := instana.NewSensorWithTracer(instana.NewTracerWithEverything(instana.DefaultOptions(), recorder))
+	sensor := instana.NewSensorWithTracer(instana.NewTracerWithEverything(getOptions(), recorder))
+	defer instana.ShutdownSensor()
 
 	payload, err := ioutil.ReadFile("testdata/s3_event.json")
 	require.NoError(t, err)
@@ -462,7 +465,8 @@ func TestNewHandler_S3Event(t *testing.T) {
 
 func TestNewHandler_SQSEvent(t *testing.T) {
 	recorder := instana.NewTestRecorder()
-	sensor := instana.NewSensorWithTracer(instana.NewTracerWithEverything(instana.DefaultOptions(), recorder))
+	sensor := instana.NewSensorWithTracer(instana.NewTracerWithEverything(getOptions(), recorder))
+	defer instana.ShutdownSensor()
 
 	payload, err := ioutil.ReadFile("testdata/sqs_event.json")
 	require.NoError(t, err)
@@ -520,7 +524,8 @@ func TestNewHandler_PreferInstanaHeadersToW3ContextHeaders(t *testing.T) {
 	for tc, fileName := range testCases {
 		t.Run(tc, func(t *testing.T) {
 			recorder := instana.NewTestRecorder()
-			sensor := instana.NewSensorWithTracer(instana.NewTracerWithEverything(instana.DefaultOptions(), recorder))
+			sensor := instana.NewSensorWithTracer(instana.NewTracerWithEverything(getOptions(), recorder))
+			defer instana.ShutdownSensor()
 
 			payload, err := ioutil.ReadFile(fileName)
 			require.NoError(t, err)
@@ -565,7 +570,8 @@ func TestNewHandler_InvokeLambda_Success(t *testing.T) {
 	for tc, lc := range testCases {
 		t.Run(tc, func(t *testing.T) {
 			recorder := instana.NewTestRecorder()
-			sensor := instana.NewSensorWithTracer(instana.NewTracerWithEverything(instana.DefaultOptions(), recorder))
+			sensor := instana.NewSensorWithTracer(instana.NewTracerWithEverything(getOptions(), recorder))
+			defer instana.ShutdownSensor()
 
 			h := instalambda.NewHandler(func(ctx context.Context, evt interface{}) error {
 				_, ok := instana.SpanFromContext(ctx)
@@ -610,7 +616,8 @@ func TestNewHandler_InvokeLambda_Success(t *testing.T) {
 
 func TestNewHandler_InvokeLambda_ColdStartAndNotColdStart(t *testing.T) {
 	recorder := instana.NewTestRecorder()
-	sensor := instana.NewSensorWithTracer(instana.NewTracerWithEverything(instana.DefaultOptions(), recorder))
+	sensor := instana.NewSensorWithTracer(instana.NewTracerWithEverything(&instana.Options{AgentClient: alwaysReadyClient{}}, recorder))
+	defer instana.ShutdownSensor()
 
 	h := instalambda.NewHandler(func(ctx context.Context, evt interface{}) error {
 		_, ok := instana.SpanFromContext(ctx)
@@ -663,7 +670,8 @@ func TestNewHandler_InvokeLambda_ColdStartAndNotColdStart(t *testing.T) {
 
 func TestNewHandler_InvokeLambda_Timeout(t *testing.T) {
 	recorder := instana.NewTestRecorder()
-	sensor := instana.NewSensorWithTracer(instana.NewTracerWithEverything(instana.DefaultOptions(), recorder))
+	sensor := instana.NewSensorWithTracer(instana.NewTracerWithEverything(getOptions(), recorder))
+	defer instana.ShutdownSensor()
 
 	h := instalambda.NewHandler(func() error {
 		time.Sleep(100 * time.Millisecond) // make sure the function times out
@@ -714,7 +722,8 @@ func TestNewHandler_InvokeLambda_Timeout(t *testing.T) {
 
 func TestNewHandler_InvokeLambda_WithIncompleteSetOfInstanaHeaders(t *testing.T) {
 	recorder := instana.NewTestRecorder()
-	sensor := instana.NewSensorWithTracer(instana.NewTracerWithEverything(instana.DefaultOptions(), recorder))
+	sensor := instana.NewSensorWithTracer(instana.NewTracerWithEverything(getOptions(), recorder))
+	defer instana.ShutdownSensor()
 
 	h := instalambda.NewHandler(func(ctx context.Context, evt interface{}) error {
 		_, ok := instana.SpanFromContext(ctx)
@@ -766,3 +775,14 @@ func TestNewHandler_InvokeLambda_WithIncompleteSetOfInstanaHeaders(t *testing.T)
 		},
 	}, span.Data)
 }
+
+type alwaysReadyClient struct{}
+
+func (alwaysReadyClient) Ready() bool                              { return true }
+func (alwaysReadyClient) SendMetrics(data acceptor.Metrics) error  { return nil }
+func (alwaysReadyClient) SendEvent(event *instana.EventData) error { return nil }
+func (alwaysReadyClient) SendSpans(spans []instana.Span) error {
+	return errors.New("Dummy agent client.")
+}
+func (alwaysReadyClient) SendProfiles(profiles []autoprofile.Profile) error { return nil }
+func (alwaysReadyClient) Flush(context.Context) error                       { return nil }

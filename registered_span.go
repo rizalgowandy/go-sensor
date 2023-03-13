@@ -50,6 +50,16 @@ const (
 	MongoDBSpanType = RegisteredSpanType("mongo")
 	// PostgreSQL client span
 	PostgreSQLSpanType = RegisteredSpanType("postgres")
+	// Redis client span
+	RedisSpanType = RegisteredSpanType("redis")
+	// RabbitMQ client span
+	RabbitMQSpanType = RegisteredSpanType("rabbitmq")
+	// Azure function span
+	AzureFunctionType = RegisteredSpanType("azf")
+	// GraphQL server span
+	GraphQLServerType = RegisteredSpanType("graphql.server")
+	// GraphQL client span
+	GraphQLClientType = RegisteredSpanType("graphql.client")
 )
 
 // RegisteredSpanType represents the span type supported by Instana
@@ -86,12 +96,20 @@ func (st RegisteredSpanType) extractData(span *spanS) typedSpanData {
 		return newMongoDBSpanData(span)
 	case PostgreSQLSpanType:
 		return newPostgreSQLSpanData(span)
+	case RedisSpanType:
+		return newRedisSpanData(span)
+	case RabbitMQSpanType:
+		return newRabbitMQSpanData(span)
+	case AzureFunctionType:
+		return newAZFSpanData(span)
+	case GraphQLServerType, GraphQLClientType:
+		return newGraphQLSpanData(span)
 	default:
 		return newSDKSpanData(span)
 	}
 }
 
-// TagsNames returns a set of tag names know to the registered span type
+// TagsNames returns a set of tag names known to the registered span type
 func (st RegisteredSpanType) TagsNames() map[string]struct{} {
 	var yes struct{}
 
@@ -227,6 +245,38 @@ func (st RegisteredSpanType) TagsNames() map[string]struct{} {
 			"pg.host":  yes,
 			"pg.port":  yes,
 			"pg.error": yes,
+		}
+	case RedisSpanType:
+		return map[string]struct{}{
+			"redis.connection":  yes,
+			"redis.command":     yes,
+			"redis.subCommands": yes,
+			"redis.error":       yes,
+		}
+	case RabbitMQSpanType:
+		return map[string]struct{}{
+			"rabbitmq.exchange": yes,
+			"rabbitmq.key":      yes,
+			"rabbitmq.sort":     yes,
+			"rabbitmq.address":  yes,
+			"rabbitmq.error":    yes,
+		}
+	case AzureFunctionType:
+		return map[string]struct{}{
+			"azf.name":         yes,
+			"azf.functionname": yes,
+			"azf.methodname":   yes,
+			"azf.triggername":  yes,
+			"azf.runtime":      yes,
+			"azf.error":        yes,
+		}
+	case GraphQLServerType, GraphQLClientType:
+		return map[string]struct{}{
+			"graphql.operationName": yes,
+			"graphql.operationType": yes,
+			"graphql.fields":        yes,
+			"graphql.args":          yes,
+			"graphql.error":         yes,
 		}
 	default:
 		return nil
@@ -440,6 +490,71 @@ func newKafkaSpanTags(span *spanS) KafkaSpanTags {
 			readStringTag(&tags.Service, v)
 		case "kafka.access":
 			readStringTag(&tags.Access, v)
+		}
+	}
+
+	return tags
+}
+
+// RabbitMQSpanData represents the `data` section of an RabbitMQ span
+type RabbitMQSpanData struct {
+	SpanData
+	Tags RabbitMQSpanTags `json:"rabbitmq"`
+
+	producerSpan bool
+}
+
+// newRabbitMQSpanData initializes a new RabbitMQ span data from tracer span
+func newRabbitMQSpanData(span *spanS) RabbitMQSpanData {
+	data := RabbitMQSpanData{
+		SpanData: NewSpanData(span, RegisteredSpanType(span.Operation)),
+		Tags:     newRabbitMQSpanTags(span),
+	}
+
+	kindTag := span.Tags[string(ext.SpanKind)]
+	data.producerSpan = kindTag == ext.SpanKindProducerEnum || kindTag == string(ext.SpanKindProducerEnum)
+
+	return data
+}
+
+// Kind returns instana.ExitSpanKind for producer spans and instana.EntrySpanKind otherwise
+func (d RabbitMQSpanData) Kind() SpanKind {
+	if d.producerSpan {
+		return ExitSpanKind
+	}
+
+	return EntrySpanKind
+}
+
+// RabbitMQSpanTags contains fields within the `data.rabbitmq` section
+type RabbitMQSpanTags struct {
+	// The RabbitMQ exchange name
+	Exchange string `json:"exchange"`
+	// The routing key
+	Key string `json:"key"`
+	// Indicates wether the message is being produced or consumed
+	Sort string `json:"sort"`
+	// The AMQP URI used to establish a connection to RabbitMQ
+	Address string `json:"address"`
+	// Error is the optional error that can be thrown by RabbitMQ when executing a command
+	Error string `json:"error,omitempty"`
+}
+
+// newRabbitMQSpanTags extracts RabbitMQ-specific span tags from a tracer span
+func newRabbitMQSpanTags(span *spanS) RabbitMQSpanTags {
+	var tags RabbitMQSpanTags
+	for k, v := range span.Tags {
+		switch k {
+		case "rabbitmq.exchange":
+			readStringTag(&tags.Exchange, v)
+		case "rabbitmq.key":
+			readStringTag(&tags.Key, v)
+		case "rabbitmq.sort":
+			readStringTag(&tags.Sort, v)
+		case "rabbitmq.address":
+			readStringTag(&tags.Address, v)
+		case "rabbitmq.error":
+			readStringTag(&tags.Error, v)
 		}
 	}
 
@@ -1085,7 +1200,7 @@ func newAWSSNSSpanTags(span *spanS) AWSSNSSpanTags {
 // AWSDynamoDBSpanData represents the `data` section of a AWS DynamoDB span sent within an OT span document
 type AWSDynamoDBSpanData struct {
 	SpanData
-	Tags AWSDynamoDBSpanTags `json:"sns"`
+	Tags AWSDynamoDBSpanTags `json:"dynamodb"`
 }
 
 // newAWSDynamoDBSpanData initializes a new AWS DynamoDB span data from tracer span
@@ -1111,6 +1226,8 @@ type AWSDynamoDBSpanTags struct {
 	Operation string `json:"op,omitempty"`
 	// Error is an optional name returned by AWS API
 	Error string `json:"error,omitempty"`
+	// Region is a region from the AWS session config
+	Region string `json:"region,omitempty"`
 }
 
 // newAWSDynamoDBSpanTags extracts AWS DynamoDB span tags from a tracer span
@@ -1124,6 +1241,8 @@ func newAWSDynamoDBSpanTags(span *spanS) AWSDynamoDBSpanTags {
 			readStringTag(&tags.Operation, v)
 		case "dynamodb.error":
 			readStringTag(&tags.Error, v)
+		case "dynamodb.region":
+			readStringTag(&tags.Region, v)
 		}
 	}
 
@@ -1245,6 +1364,25 @@ func newMongoDBSpanData(span *spanS) MongoDBSpanData {
 	}
 }
 
+// RedisSpanData represents the `data` section of a Redis client span
+type RedisSpanData struct {
+	SpanData
+	Tags RedisSpanTags `json:"redis"`
+}
+
+// newRedisSpanData initializes a new Redis clientspan data from tracer span
+func newRedisSpanData(span *spanS) RedisSpanData {
+	return RedisSpanData{
+		SpanData: NewSpanData(span, RedisSpanType),
+		Tags:     newRedisSpanTags(span),
+	}
+}
+
+// Kind returns the span kind for a Redis client span
+func (d RedisSpanData) Kind() SpanKind {
+	return ExitSpanKind
+}
+
 // Kind returns the span kind for a MongoDB client span
 func (d MongoDBSpanData) Kind() SpanKind {
 	return ExitSpanKind
@@ -1337,6 +1475,140 @@ func newPostgreSQLSpanTags(span *spanS) postgreSQLSpanTags {
 		case "pg.user":
 			readStringTag(&tags.User, v)
 		case "pg.error":
+		}
+	}
+	return tags
+}
+
+// RedisSpanTags contains fields within the `data.redis` section of an OT span document
+type RedisSpanTags struct {
+	// Connection is the host and port where the Redis server is running
+	Connection string `json:"connection"`
+	// Command is the Redis command being executed
+	Command string `json:"command"`
+	// Subcommands is the list of commands queued when a transaction starts, eg: by using the MULTI command
+	Subcommands []string `json:"subCommands,omitempty"`
+	// Error is the optional error that can be thrown by Redis when executing a command
+	Error string `json:"error,omitempty"`
+}
+
+func newRedisSpanTags(span *spanS) RedisSpanTags {
+	var tags RedisSpanTags
+	for k, v := range span.Tags {
+		switch k {
+		case "redis.connection":
+			readStringTag(&tags.Connection, v)
+		case "redis.command":
+			readStringTag(&tags.Command, v)
+		case "redis.subCommands":
+			readArrayStringTag(&tags.Subcommands, v)
+		case "redis.error":
+			readStringTag(&tags.Error, v)
+		}
+	}
+
+	return tags
+}
+
+type AZFSpanTags struct {
+	Name         string `json:"name,omitempty"`
+	FunctionName string `json:"functionname,omitempty"`
+	MethodName   string `json:"methodname,omitempty"`
+	Trigger      string `json:"triggername,omitempty"`
+	Runtime      string `json:"runtime,omitempty"`
+	Error        string `json:"error,omitempty"`
+}
+
+func newAZFSpanTags(span *spanS) AZFSpanTags {
+	var tags AZFSpanTags
+	for k, v := range span.Tags {
+		switch k {
+		case "azf.name":
+			readStringTag(&tags.Name, v)
+		case "azf.functionname":
+			readStringTag(&tags.FunctionName, v)
+		case "azf.methodname":
+			readStringTag(&tags.MethodName, v)
+		case "azf.triggername":
+			readStringTag(&tags.Trigger, v)
+		case "azf.runtime":
+			readStringTag(&tags.Runtime, v)
+		}
+	}
+
+	return tags
+}
+
+type AZFSpanData struct {
+	SpanData
+	Tags AZFSpanTags `json:"azf"`
+}
+
+func newAZFSpanData(span *spanS) AZFSpanData {
+	return AZFSpanData{
+		SpanData: NewSpanData(span, AzureFunctionType),
+		Tags:     newAZFSpanTags(span),
+	}
+}
+
+// Kind returns instana.EntrySpanKind for server spans and instana.ExitSpanKind otherwise
+func (d AZFSpanData) Kind() SpanKind {
+	return EntrySpanKind
+}
+
+// GraphQLSpanData represents the `data` section of a GraphQL span sent within an OT span document
+type GraphQLSpanData struct {
+	SpanData
+	Tags GraphQLSpanTags `json:"graphql"`
+
+	clientSpan bool
+}
+
+// newGraphQLSpanData initializes a new GraphQL span data from tracer span
+func newGraphQLSpanData(span *spanS) GraphQLSpanData {
+	data := GraphQLSpanData{
+		SpanData: NewSpanData(span, RegisteredSpanType(span.Operation)),
+		Tags:     newGraphQLSpanTags(span),
+	}
+
+	kindTag := span.Tags[string(ext.SpanKind)]
+	data.clientSpan = kindTag == ext.SpanKindRPCClientEnum || kindTag == string(ext.SpanKindRPCClientEnum)
+
+	return data
+}
+
+// Kind returns instana.EntrySpanKind for server spans and instana.ExitSpanKind otherwise
+func (d GraphQLSpanData) Kind() SpanKind {
+	if d.clientSpan {
+		return ExitSpanKind
+	}
+
+	return EntrySpanKind
+}
+
+// GraphQLSpanTags contains fields within the `data.graphql` section of an OT span document
+type GraphQLSpanTags struct {
+	OperationName string              `json:"operationName,omitempty"`
+	OperationType string              `json:"operationType,omitempty"`
+	Fields        map[string][]string `json:"fields,omitempty"`
+	Args          map[string][]string `json:"args,omitempty"`
+	Error         string              `json:"error,omitempty"`
+}
+
+// newGraphQLSpanTags extracts GraphQL-specific span tags from a tracer span
+func newGraphQLSpanTags(span *spanS) GraphQLSpanTags {
+	var tags GraphQLSpanTags
+	for k, v := range span.Tags {
+		switch k {
+		case "graphql.operationName":
+			readStringTag(&tags.OperationName, v)
+		case "graphql.operationType":
+			readStringTag(&tags.OperationType, v)
+		case "graphql.fields":
+			readMapOfStringSlicesTag(&tags.Fields, v)
+		case "graphql.args":
+			readMapOfStringSlicesTag(&tags.Args, v)
+		case "graphql.error":
 			readStringTag(&tags.Error, v)
 		}
 	}

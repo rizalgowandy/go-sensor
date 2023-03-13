@@ -11,47 +11,52 @@ import (
 )
 
 func extractDynamoDBTags(req *request.Request) (opentracing.Tags, error) {
+	var tags opentracing.Tags
 	switch params := req.Params.(type) {
 	case *dynamodb.CreateTableInput:
-		return opentracing.Tags{
-			"dynamodb.op":    "create",
-			"dynamodb.table": aws.StringValue(params.TableName),
-		}, nil
+		tags = opentracing.Tags{
+			dynamodbOp:    "create",
+			dynamodbTable: aws.StringValue(params.TableName),
+		}
 	case *dynamodb.ListTablesInput:
-		return opentracing.Tags{
-			"dynamodb.op": "list",
-		}, nil
+		tags = opentracing.Tags{
+			dynamodbOp: "list",
+		}
 	case *dynamodb.GetItemInput:
-		return opentracing.Tags{
-			"dynamodb.op":    "get",
-			"dynamodb.table": aws.StringValue(params.TableName),
-		}, nil
+		tags = opentracing.Tags{
+			dynamodbOp:    "get",
+			dynamodbTable: aws.StringValue(params.TableName),
+		}
 	case *dynamodb.PutItemInput:
-		return opentracing.Tags{
-			"dynamodb.op":    "put",
-			"dynamodb.table": aws.StringValue(params.TableName),
-		}, nil
+		tags = opentracing.Tags{
+			dynamodbOp:    "put",
+			dynamodbTable: aws.StringValue(params.TableName),
+		}
 	case *dynamodb.UpdateItemInput:
-		return opentracing.Tags{
-			"dynamodb.op":    "update",
-			"dynamodb.table": aws.StringValue(params.TableName),
-		}, nil
+		tags = opentracing.Tags{
+			dynamodbOp:    "update",
+			dynamodbTable: aws.StringValue(params.TableName),
+		}
 	case *dynamodb.DeleteItemInput:
-		return opentracing.Tags{
-			"dynamodb.op":    "delete",
-			"dynamodb.table": aws.StringValue(params.TableName),
-		}, nil
+		tags = opentracing.Tags{
+			dynamodbOp:    "delete",
+			dynamodbTable: aws.StringValue(params.TableName),
+		}
 	case *dynamodb.QueryInput:
-		return opentracing.Tags{
-			"dynamodb.op":    "query",
-			"dynamodb.table": aws.StringValue(params.TableName),
-		}, nil
+		tags = opentracing.Tags{
+			dynamodbOp:    "query",
+			dynamodbTable: aws.StringValue(params.TableName),
+		}
 	case *dynamodb.ScanInput:
-		return opentracing.Tags{
-			"dynamodb.op":    "scan",
-			"dynamodb.table": aws.StringValue(params.TableName),
-		}, nil
+		tags = opentracing.Tags{
+			dynamodbOp:    "scan",
+			dynamodbTable: aws.StringValue(params.TableName),
+		}
 	default:
 		return nil, errMethodNotInstrumented
 	}
+
+	tags[dynamodbRegion] = aws.StringValue(req.Config.Region)
+
+	return tags, nil
 }

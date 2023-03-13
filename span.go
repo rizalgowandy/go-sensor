@@ -16,6 +16,8 @@ import (
 
 const minSpanLogLevel = logger.WarnLevel
 
+var _ ot.Span = (*spanS)(nil)
+
 type spanS struct {
 	Service     string
 	Operation   string
@@ -76,7 +78,11 @@ func (r *spanS) FinishWithOptions(opts ot.FinishOptions) {
 
 	r.Duration = duration
 	if !r.context.Suppressed {
-		r.tracer.recorder.RecordSpan(r)
+		if sensor.Agent().Ready() {
+			r.tracer.recorder.RecordSpan(r)
+		} else {
+			delayed.append(r)
+		}
 		r.sendOpenTracingLogRecords()
 	}
 }

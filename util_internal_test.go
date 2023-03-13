@@ -9,8 +9,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/instana/testify/assert"
-	"github.com/instana/testify/require"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Trace IDs (and Span IDs) are based on Java Signed Long datatype
@@ -179,5 +179,11 @@ eth0	00000000	010011AC	0003	0	0	0	00000000	0	0	0
 			require.NoError(t, err)
 			assert.Equal(t, test.expected, gateway)
 		}()
+	}
+}
+
+func BenchmarkFormatID(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		FormatID(int64(i))
 	}
 }

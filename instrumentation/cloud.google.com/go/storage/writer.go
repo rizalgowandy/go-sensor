@@ -1,13 +1,13 @@
 // (c) Copyright IBM Corp. 2021
 // (c) Copyright Instana Inc. 2020
 
-// +build go1.11
-
 package storage
 
 import (
 	"context"
 	"sync"
+
+	"github.com/instana/go-sensor/instrumentation/cloud.google.com/go/internal/tags"
 
 	"cloud.google.com/go/storage"
 	"github.com/instana/go-sensor/instrumentation/cloud.google.com/go/internal"
@@ -44,9 +44,9 @@ func (w *Writer) Write(p []byte) (n int, err error) {
 	w.mu.Lock()
 	if w.writeCtx == nil {
 		w.writeCtx = internal.StartExitSpan(w.ctx, "gcs", ot.Tags{
-			"gcs.op":     "objects.insert",
-			"gcs.bucket": bucket,
-			"gcs.object": w.Writer.ObjectAttrs.Name,
+			tags.GcsOp:     "objects.insert",
+			tags.GcsBucket: bucket,
+			tags.GcsObject: w.Writer.ObjectAttrs.Name,
 		})
 	}
 	w.mu.Unlock()

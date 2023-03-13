@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	instana "github.com/instana/go-sensor"
-	"github.com/instana/testify/assert"
 	"github.com/opentracing/opentracing-go"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestRegisteredSpanType_ExtractData(t *testing.T) {
@@ -74,12 +74,29 @@ func TestRegisteredSpanType_ExtractData(t *testing.T) {
 			Operation: "postgres",
 			Expected:  instana.PostgreSQLSpanData{},
 		},
+		"redis": {
+			Operation: "redis",
+			Expected:  instana.RedisSpanData{},
+		},
+		"rabbitmq": {
+			Operation: "rabbitmq",
+			Expected:  instana.RabbitMQSpanData{},
+		},
+		"graphql server": {
+			Operation: "graphql.server",
+			Expected:  instana.GraphQLSpanData{},
+		},
+		"graphql client": {
+			Operation: "graphql.client",
+			Expected:  instana.GraphQLSpanData{},
+		},
 	}
 
 	for name, example := range examples {
 		t.Run(name, func(t *testing.T) {
 			recorder := instana.NewTestRecorder()
-			tracer := instana.NewTracerWithEverything(&instana.Options{}, recorder)
+			tracer := instana.NewTracerWithEverything(&instana.Options{AgentClient: alwaysReadyClient{}}, recorder)
+			defer instana.ShutdownSensor()
 
 			sp := tracer.StartSpan(example.Operation)
 			sp.Finish()
@@ -296,7 +313,8 @@ func TestNewAWSLambdaSpanData(t *testing.T) {
 	for trigger, example := range examples {
 		t.Run(trigger, func(t *testing.T) {
 			recorder := instana.NewTestRecorder()
-			tracer := instana.NewTracerWithEverything(&instana.Options{}, recorder)
+			tracer := instana.NewTracerWithEverything(&instana.Options{AgentClient: alwaysReadyClient{}}, recorder)
+			defer instana.ShutdownSensor()
 
 			sp := tracer.StartSpan("aws.lambda.entry", opentracing.Tags{
 				"lambda.arn":       "lambda-arn-1",
